@@ -2,13 +2,13 @@
 # requires-python = ">=3.11"
 # dependencies = ["pillow>=10", "numpy>=1.26", "scipy>=1.11"]
 # ///
-"""Render the Corvid wallpapers, unlock image and previews.
+"""Render the Glyph wallpapers, unlock image and previews.
 
 Every image is built from monospace glyphs laid on a character grid, then
 lit with a bloom/halo pass and a chromatic-aberration pass on the frame.
 
     uv run src/generate.py                 # everything, 5120x2880
-    uv run src/generate.py --only perch    # one wallpaper
+    uv run src/generate.py --only cog      # one wallpaper
     uv run src/generate.py --size 3840x2160 --fast
 """
 
@@ -48,7 +48,7 @@ MID = "01%&○/+#$ϟ"
 CORE = "@#0&%✱○■8$1"
 
 FONT_CANDIDATES = [
-    os.environ.get("CORVID_FONT", ""),
+    os.environ.get("GLYPH_FONT", ""),
     "~/Library/Fonts/JetBrainsMonoNerdFont-Bold.ttf",
     "~/Library/Fonts/JetBrainsMono-Bold.ttf",
     "/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Bold.ttf",
@@ -61,7 +61,7 @@ def find_font() -> str:
     for cand in FONT_CANDIDATES:
         if cand and Path(cand).expanduser().exists():
             return str(Path(cand).expanduser())
-    sys.exit("❌ JetBrains Mono not found. Set CORVID_FONT=/path/to/font.ttf")
+    sys.exit("❌ JetBrains Mono not found. Set GLYPH_FONT=/path/to/font.ttf")
 
 
 FONT_PATH = find_font()
@@ -185,6 +185,11 @@ class Scene:
         y0 = cy - rows * pitch * ry / 2
         return self.fill(occ, x0, y0, pitch, **kw)
 
+    def place(self, occ, cx, cy, pitch, ry=1.08, **kw):
+        """Lay a ready-made boolean grid with its centre at (cx, cy)."""
+        rows, cols = occ.shape
+        return self.fill(occ, cx - cols * pitch / 2, cy - rows * pitch * ry / 2, pitch, ry=ry, **kw)
+
     # -- ambient -----------------------------------------------------------
 
     def stars(self, n, size, **kw):
@@ -282,7 +287,7 @@ class Scene:
 
 
 def wp_perch(w, h, fast=False):
-    """The raven, framed. The theme's signature image."""
+    """A raven on a branch, framed."""
     s = Scene(w, h, seed=7)
     u = s.u
     pitch = 40 * u
@@ -297,139 +302,179 @@ def wp_perch(w, h, fast=False):
     return s.render(fast=fast)
 
 
-def wp_glide(w, h, fast=False):
-    """A huge raven gliding overhead, wings spanning the screen."""
-    s = Scene(w, h, seed=11)
-    u = s.u
-    s.stars(900, 24 * u, bright=(0.05, 0.32))
-    box = min(h * 1.28, w * 0.86)  # the shape spans ~67% of its box vertically
-    s.shape(shapes.GLIDE, w * 0.5, h * 0.47, box, box, 34 * u, drop=0.14, bright=0.92)
-    return s.render(glow=0.6, bloom=0.8, fast=fast)
+def text_grid(text, rows, ry=1.08):
+    """Rasterise `text` in the theme font to a boolean grid `rows` cells tall."""
+    f = font(400)
+    l, t, r, b = f.getbbox(text)
+    im = Image.new("L", (r - l + 20, b - t + 20))
+    ImageDraw.Draw(im).text((10 - l, 10 - t), text, font=f, fill=255)
+    cols = max(1, round(rows * ry * im.width / im.height))
+    a = np.asarray(im.resize((cols, rows), Image.BOX), dtype=np.float32) / 255
+    return a > 0.3
 
 
-def glide_small(s, cx, cy, span, pitch=None, **kw):
-    """A distant gliding raven, `span` wide. Fine pitch keeps its feathers legible."""
-    pitch = pitch or span / 70
-    kw.setdefault("drop", 0.02)
-    kw.setdefault("haze", 30)
-    kw.setdefault("size", pitch * 1.25)
-    return s.shape(shapes.GLIDE, cx, cy, span, span, pitch, **kw)
+def cog_grid(cols, rows, ry=1.08, teeth=8, hole=0.46, root=0.76, tip_w=0.42, root_w=0.64):
+    """An original eight-tooth cog with trapezoidal teeth, one tooth pointing up."""
+    occ = np.zeros((rows, cols), dtype=bool)
+    R = min(cols / 2, rows * ry / 2) - 0.5
+    for r in range(rows):
+        for c in range(cols):
+            x, y = c + 0.5 - cols / 2, (r + 0.5) * ry - rows * ry / 2
+            rr = math.hypot(x, y) / R
+            if rr < hole or rr > 1:
+                continue
+            if rr <= root:
+                occ[r, c] = True
+                continue
+            phase = ((math.atan2(y, x) + math.pi / 2) * teeth / math.tau + 0.5) % 1
+            d = abs(phase - 0.5) * 2  # 0 at a tooth's centre line, 1 between teeth
+            t = (rr - root) / (1 - root)
+            occ[r, c] = d < root_w + (tip_w - root_w) * t
+    return occ
 
 
-def wp_wire(w, h, fast=False):
-    """Three ravens on a sagging wire across the lower third."""
-    s = Scene(w, h, seed=23)
-    u = s.u
-    pitch = 26 * u
-    s.stars(700, 22 * u, region=(0, 0, w, h * 0.7), bright=(0.05, 0.3))
-
-    def wire_y(x):
-        t = x / w
-        return h * 0.60 + h * 0.08 * (1 - (2 * t - 1) ** 2)  # sags in the middle
-
-    # (x position, box height, facing left?)
-    birds = [(0.18, 0.30, False), (0.40, 0.24, True), (0.70, 0.40, True)]
-    for fx, fh, flip in birds:
-        box = h * fh
-        bx = w * fx
-        feet = wire_y(bx)
-        # place the shape so its toe line sits on the wire
-        cy = feet - box * (shapes.PERCH_FEET_Y / 100 - 0.5) - pitch * 0.4
-        s.shape(shapes.PERCH, bx, cy, box * 1.05, box, box / 40, flip=flip)
-
-    # The wire itself: a catenary of dashes that passes behind the birds.
-    step = pitch * 0.55
-    x = -step
-    while x < w + step:
-        y = wire_y(x)
-        if 0 <= x < w and s.haze.getpixel((int(x), int(y))) == 0:
-            ch = "=" if s.rng.random() < 0.06 else "-"
-            s.put(x, y, ch, 30 * u, scale(lerp(WHITE, LAVENDER, 0.35), s.rng.uniform(0.5, 0.75)))
-        x += step
-
-    # a distant pair heading out
-    glide_small(s, w * 0.84, h * 0.17, w * 0.09)
-    glide_small(s, w * 0.90, h * 0.25, w * 0.055)
-    s.frame_dashed(64 * u, 54 * u, 30 * u, top="=", side=("|", "|"), corner="+")
-    return s.render(fast=fast)
-
-
-def wp_murmuration(w, h, fast=False):
-    """A flock of thousands, swirling across the screen as a ribbon of glyphs."""
-    s = Scene(w, h, seed=31)
+def wp_horizon(w, h, fast=False):
+    """A ridgeline landscape drawn as rows of glyphs, with a banded sun."""
+    s = Scene(w, h, seed=97)
     u = s.u
     rng = s.rng
-    s.stars(350, 20 * u, bright=(0.04, 0.22))
+    horizon = h * 0.58
+    s.stars(800, 22 * u, region=(0, 0, w, horizon * 0.95), bright=(0.05, 0.35))
 
-    def spine(t):
-        # a long rising sweep with one lazy loop in it
-        x = w * (0.06 + 0.80 * t) + w * 0.07 * math.sin(t * math.tau * 1.1)
-        y = h * (0.74 - 0.42 * t + 0.10 * math.sin(t * math.tau * 1.6))
-        return x, y
+    # Sun: a disc of glyphs above the horizon, sliced by widening dark bands.
+    pitch = 22 * u
+    R = h * 0.2
+    sx, sy = w * 0.5, horizon - R * 0.18
+    for r in range(int(2 * R / (pitch * 1.08)) + 1):
+        y = sy - R + (r + 0.5) * pitch * 1.08
+        if y > horizon - pitch:
+            break
+        t = (y - (sy - R)) / (2 * R)  # 0 at the top of the disc
+        band = (y - (sy - R)) / (R * 0.12)
+        if t > 0.45 and (band % 1) < (t - 0.45) * 1.4:
+            continue
+        half = math.sqrt(max(0, R * R - (y - sy) ** 2))
+        col = lerp(WHITE, ORANGE, min(1, t * 1.3))
+        x = sx - half + pitch / 2
+        while x < sx + half:
+            ch = "@#0%&■"[rng.integers(6)] if t < 0.5 else "%&0+=-"[rng.integers(6)]
+            s.put(x, y, ch, pitch * 1.05, scale(col, rng.uniform(0.75, 1.0)))
+            s.dh.rectangle([x - pitch / 2, y - pitch / 2, x + pitch / 2, y + pitch / 2], fill=60)
+            x += pitch
 
-    def width(t):
-        # the ribbon twists: wide sheets pinched to near-nothing at the folds
-        return h * (0.012 + 0.10 * abs(math.sin(t * math.pi * 2.6 + 0.4)) * math.sin(math.pi * t) ** 0.6)
-
-    n = 14000 if not fast else 5000
-    for _ in range(n):
-        t = rng.beta(1.6, 1.5)
-        x, y = spine(t)
-        x2, y2 = spine(min(1, t + 1e-3))
-        tx, ty = x2 - x, y2 - y
-        norm = math.hypot(tx, ty) or 1
-        nx, ny = -ty / norm, tx / norm
-        wd = width(t)
-        off = rng.normal(0, 0.5) * wd
-        along = rng.normal(0, h * 0.008)
-        px, py = x + nx * off + tx / norm * along, y + ny * off + ty / norm * along
-        dens = math.exp(-(off / wd) ** 2 * 1.2) * (0.6 + 0.4 * min(1, h * 0.05 / wd))
-        ch = "v" if rng.random() < 0.6 else rng.choice(list("^~-·.˅"))
-        size = rng.uniform(10, 20) * u * (0.85 + 0.4 * dens)
-        col = ORANGE if rng.random() < 0.012 else lerp(LAVENDER, WHITE, min(1, dens))
-        s.put(px, py, ch, size, scale(col, rng.uniform(0.35, 1.0) * (0.35 + 0.65 * min(1, dens))))
-        if rng.random() < 0.05:
-            s.dh.ellipse([px - 26 * u, py - 26 * u, px + 26 * u, py + 26 * u], fill=50)
-
-    # a few nearer ravens break from the flock
-    glide_small(s, w * 0.80, h * 0.20, w * 0.16)
-    glide_small(s, w * 0.67, h * 0.12, w * 0.08)
-    glide_small(s, w * 0.91, h * 0.36, w * 0.06)
+    # Ridgelines from far (thin, dim, flat) to near (big, bright, tall).
+    n = 30
+    phases = [(rng.uniform(0, math.tau), rng.uniform(0, math.tau), rng.uniform(0, math.tau)) for _ in range(n)]
+    for i in range(n):
+        t = i / (n - 1)
+        base = horizon + (h - horizon) * (t ** 1.6) * 0.98
+        amp = h * (0.012 + 0.07 * t)
+        step = (14 + 26 * t) * u
+        size = (16 + 22 * t) * u
+        bright = 0.18 + 0.75 * t
+        p1, p2, p3 = phases[i]
+        x = -step
+        prev = None
+        while x < w + step:
+            # flatter towards the middle, so the sun sits in a valley
+            env = 0.35 + 0.65 * min(1, abs(x / w - 0.5) * 2.4)
+            y = base - amp * env * (0.55 * (1 + math.sin(x / w * 7.1 + p1)) +
+                                   0.30 * (1 + math.sin(x / w * 17.3 + p2)) +
+                                   0.15 * (1 + math.sin(x / w * 41.0 + p3)))
+            if prev is not None:
+                slope = (y - prev) / step
+                ch = "/" if slope < -0.35 else "\\" if slope > 0.35 else ("-" if rng.random() < 0.8 else "~")
+                col = ORANGE if rng.random() < 0.012 else lerp(LAVENDER, WHITE, t)
+                s.put(x, y, ch, size, scale(col, bright * rng.uniform(0.8, 1.0)))
+            prev = y
+            x += step
     s.frame_dashed(64 * u, 54 * u, 30 * u, sides=False, corner="+")
     return s.render(glow=0.9, fast=fast)
 
 
-def wp_ember(w, h, fast=False):
-    """The raven again, facing left, burning orange, with rising sparks."""
-    s = Scene(w, h, seed=43)
+def wp_omarchy(w, h, fast=False):
+    """The Omarchy wordmark, four glyphs to each pixel of the logo."""
+    s = Scene(w, h, seed=83)
     u = s.u
-    rng = s.rng
-    box = h * 0.66
-    cx, cy = w * 0.56, h * 0.53
-    left = cx - box * 1.05 / 2
+    s.stars(420, 24 * u, bright=(0.05, 0.3))
+    logo = shapes.load_grid("omarchy-logo.txt", scale=2)
+    rows, cols = logo.shape
+    pitch = min(w * 0.64 / cols, h * 0.34 / (rows * 1.08))
+    s.place(logo, w / 2, h * 0.5, pitch, drop=0.03, orange=0.035, blocks=0.05)
+    s.frame_dashed(64 * u, 54 * u, 30 * u, top="=", corner="+")
+    return s.render(fast=fast)
+
+
+def wp_mark(w, h, fast=False):
+    """The Omarchy mark, huge and dim, with a prompt waiting inside it."""
+    s = Scene(w, h, seed=89)
+    u = s.u
+    s.stars(600, 22 * u, bright=(0.05, 0.3))
+    mark = shapes.load_grid("omarchy-icon.txt", scale=3)
+    rows, cols = mark.shape
+    pitch = h * 0.66 / (rows * 1.08)
+    cx, cy = w / 2, h * 0.5
+    s.place(mark, cx, cy, pitch, drop=0.03, orange=0.03, blocks=0.05, tiers=(MID, CORE, CORE),
+            colorize=lambda x, y, d, r: lerp(LAVENDER, WHITE, 0.7 if d > 1 else 0.4))
+    size = 64 * u
+    s.text(cx - size * 0.62 * 2, cy, "~ $", size, scale(WHITE, 0.7))
+    s.put(cx + size * 0.62 * 1.6, cy, "■", size, ORANGE)
+    return s.render(glow=0.8, fast=fast)
+
+
+def wp_cog(w, h, fast=False):
+    """An eight-tooth cog of small round glyphs in a dense starfield."""
+    s = Scene(w, h, seed=101)
+    u = s.u
+    s.stars(1600, 22 * u, bright=(0.05, 0.45), chars=".·+.·*")
+    pitch = 22 * u
+    d = h * 0.6
+    occ = cog_grid(int(d / pitch), int(d / (pitch * 1.08)))
+    s.place(occ, w / 2, h * 0.5, pitch, tiers=("○.:+o", "○○0o●", "○●○0@"), drop=0.02,
+            orange=0.02, blocks=0.0, haze=60)
+    return s.render(glow=0.85, fast=fast)
+
+
+BOLT = [[(58, 2), (28, 55), (47, 55), (37, 98), (75, 40), (55, 40), (71, 2)]]
+
+
+def wp_bolt(w, h, fast=False):
+    """A lightning bolt that cools from white at the top to orange at the strike."""
+    s = Scene(w, h, seed=107)
+    u = s.u
+    s.stars(500, 22 * u, bright=(0.05, 0.3))
+    box = h * 0.74
+    cx, cy = w * 0.5, h * 0.5
+    top = cy - box / 2
 
     def colorize(x, y, d, r):
-        # white-hot at the head, cooling to deep ember at the tail
-        t = min(1, max(0, (x - left) / (box * 1.05)))
-        t = 1 - t  # facing left: head is on the left
-        base = lerp(lerp(WHITE, ORANGE, 0.55), DEEP_EMBER, t ** 1.3) if t > 0.15 else lerp(WHITE, ORANGE, t / 0.15 * 0.55)
-        return base if d > 1 or r.random() > 0.3 else lerp(base, EMBER, 0.6)
+        t = (y - top) / box
+        base = lerp(WHITE, ORANGE, max(0, min(1, (t - 0.25) * 1.6)))
+        return base if r.random() > 0.08 else LAVENDER
 
-    s.shape(shapes.PERCH, cx, cy, box * 1.05, box, 40 * u, flip=True, colorize=colorize, haze=50)
-    s.shape(shapes.BRANCH, cx, cy, box * 1.05, box, 40 * u, flip=True,
-            tiers=("=-~_", "=#-~", "=#"), colorize=lambda *_: DEEP_EMBER, blocks=0, haze=30)
+    s.shape(BOLT, cx, cy, box, box, 34 * u, colorize=colorize, tiers=(EDGE, MID, "@#0&■✱ϟ"))
+    s.frame_dashed(64 * u, 54 * u, 30 * u, top="ϟ", side=("|", "|"), corner="+", bright=0.45)
+    return s.render(fast=fast)
 
-    # sparks drifting up and to the right
-    for _ in range(1100):
-        x = rng.uniform(left - box * 0.2, w)
-        y = rng.uniform(0, h)
-        near = math.exp(-(((x - cx) / (w * 0.35)) ** 2 + ((y - cy) / (h * 0.45)) ** 2))
-        if rng.random() > 0.15 + 0.85 * near:
-            continue
-        col = lerp(EMBER, ORANGE, rng.random()) if rng.random() < 0.85 else WHITE
-        s.put(x, y, rng.choice(list("··.:'+*ϟ")), rng.uniform(14, 30) * u,
-              scale(col, rng.uniform(0.2, 0.9) * (0.3 + 0.7 * near)))
-    return s.render(glow=1.05, halo=(1.0, 0.55, 0.35), fast=fast)
+
+def wp_prompt(w, h, fast=False):
+    """A shell prompt, one character drawn with hundreds of others."""
+    s = Scene(w, h, seed=113)
+    u = s.u
+    s.stars(300, 22 * u, bright=(0.05, 0.25))
+    occ = text_grid(">_", rows=int(h * 0.40 / (30 * u * 1.08)))
+    rows, cols = occ.shape
+    pitch = 30 * u
+    x0 = w / 2 - cols * pitch / 2
+
+    def colorize(x, y, d, r):
+        # the underscore is the cursor
+        return ORANGE if x > x0 + cols * pitch * 0.52 else WHITE
+
+    s.place(occ, w / 2, h * 0.5, pitch, colorize=colorize, drop=0.03, tiers=(MID, CORE, CORE))
+    s.text(w * 0.06, h * 0.88, "omarchy ~ glyph", 30 * u, scale(LAVENDER, 0.5))
+    s.frame_dashed(64 * u, 54 * u, 30 * u)
+    return s.render(fast=fast)
 
 
 def wp_nocturne(w, h, fast=False):
@@ -490,27 +535,27 @@ def wp_nocturne(w, h, fast=False):
 
 
 def wp_void(w, h, fast=False):
-    """Mostly nothing: a frame, a few stars and a small raven keeping watch."""
+    """Mostly nothing: a frame, a few stars and a waiting cursor, for busy desktops."""
     s = Scene(w, h, seed=61)
     u = s.u
     s.stars(180, 24 * u, bright=(0.05, 0.3))
-    box = h * 0.2
-    s.shape(shapes.PERCH, w * 0.83, h * 0.76, box * 1.05, box, 15 * u, haze=40)
-    s.shape(shapes.BRANCH, w * 0.83, h * 0.76, box * 1.05, box, 15 * u,
-            tiers=("=-~_", "=#-~", "=#"), bright=0.6, blocks=0, haze=20)
-    s.text(w * 0.06, h * 0.86, "~ $ _", 34 * u, scale(WHITE, 0.55))
+    size = 34 * u
+    s.text(w * 0.06, h * 0.86, "~ $", size, scale(WHITE, 0.55))
+    s.put(w * 0.06 + size * 0.62 * 4, h * 0.86, "■", size, scale(ORANGE, 0.9))
     s.frame_dashed(64 * u, 54 * u, 30 * u, side=(">", "<"))
     return s.render(fast=fast)
 
 
 WALLPAPERS = {
-    "perch": ("1-perch", wp_perch),
-    "glide": ("2-glide", wp_glide),
-    "wire": ("3-wire", wp_wire),
-    "murmuration": ("4-murmuration", wp_murmuration),
-    "ember": ("5-ember", wp_ember),
-    "nocturne": ("6-nocturne", wp_nocturne),
-    "void": ("7-void", wp_void),
+    "horizon": ("01-horizon", wp_horizon),
+    "omarchy": ("02-omarchy", wp_omarchy),
+    "perch": ("03-perch", wp_perch),
+    "cog": ("04-cog", wp_cog),
+    "bolt": ("05-bolt", wp_bolt),
+    "nocturne": ("06-nocturne", wp_nocturne),
+    "mark": ("07-mark", wp_mark),
+    "prompt": ("08-prompt", wp_prompt),
+    "void": ("09-void", wp_void),
 }
 
 
@@ -530,8 +575,15 @@ def to_transparent(img: Image.Image) -> Image.Image:
 def make_unlock(fast=False):
     w, h = 800, 520
     s = Scene(w * 4, h * 4, seed=71)  # render big, downsample for crisp glyphs
-    box = s.h * 0.86
-    s.shape(shapes.PERCH, s.w / 2, s.h * 0.5, box * 1.05, box, box / 42, haze=0, drop=0.03)
+    rows = 26
+    occ = text_grid(">_", rows=rows)
+    pitch = s.h * 0.78 / (rows * 1.08)
+    mid = s.w / 2
+
+    def colorize(x, y, d, r):
+        return ORANGE if x > mid + pitch * 0.5 else WHITE
+
+    s.place(occ, s.w / 2, s.h * 0.5, pitch, colorize=colorize, haze=0, drop=0.02, tiers=(MID, CORE, CORE))
     img = s.render(glow=0.7, haze=0, fast=fast).resize((w, h), Image.LANCZOS)
     return to_transparent(img)
 
@@ -551,7 +603,7 @@ def make_preview_unlock(unlock: Image.Image):
 
 
 def make_preview(wall: Image.Image):
-    """A mock Omarchy desktop: Waybar, a terminal and an editor, over 1-perch."""
+    """A mock Omarchy desktop: Waybar, a terminal and an editor, over a wallpaper."""
     W, H = 2560, 1440
     img = wall.resize((W, H), Image.LANCZOS).convert("RGB")
     d = ImageDraw.Draw(img, "RGBA")
@@ -580,17 +632,17 @@ def make_preview(wall: Image.Image):
     lx1 = int(W * 0.40)
     window(gap, top, lx1, H // 2 - gap // 2, True)
     lines = [
-        [("~/dev/corvid ", pal["blue"]), ("main ", pal["magenta"]), ("❯ ", acc), ("fastfetch", fg)],
+        [("~/dev/glyph ", pal["blue"]), ("main ", pal["magenta"]), ("❯ ", acc), ("fastfetch", fg)],
         [],
         [("   ", acc), ("OS     ", pal["blue"]), ("Arch Linux · Omarchy", fg)],
         [("   ", acc), ("WM     ", pal["blue"]), ("Hyprland", fg)],
-        [("   ", acc), ("Theme  ", pal["blue"]), ("Corvid", fg)],
+        [("   ", acc), ("Theme  ", pal["blue"]), ("Glyph", fg)],
         [("   ", acc), ("Term   ", pal["blue"]), ("Ghostty", fg)],
         [("   ", acc), ("Font   ", pal["blue"]), ("JetBrainsMono Nerd Font", fg)],
         [],
         [("  ", None)] + [("███", c) for c in [(30, 30, 36), *pal.values(), fg]],
         [],
-        [("~/dev/corvid ", pal["blue"]), ("main ", pal["magenta"]), ("❯ ", acc), ("_", fg)],
+        [("~/dev/glyph ", pal["blue"]), ("main ", pal["magenta"]), ("❯ ", acc), ("_", fg)],
     ]
     for i, segs in enumerate(lines):
         x = gap + 26
@@ -616,25 +668,25 @@ def make_preview(wall: Image.Image):
     rx0 = lx1 + gap
     window(rx0, top, W - gap, H - gap, False)
     code = [
-        [("-- ", dim), ("The raven keeps watch.", dim)],
-        [("local ", pal["magenta"]), ("corvid ", fg), ("= ", acc), ("require", pal["blue"]), ("(", fg),
-         ('"corvid"', pal["green"]), (")", fg)],
+        [("-- ", dim), ("Every pixel is a character.", dim)],
+        [("local ", pal["magenta"]), ("glyph ", fg), ("= ", acc), ("require", pal["blue"]), ("(", fg),
+         ('"glyph"', pal["green"]), (")", fg)],
         [],
-        [("function ", pal["magenta"]), ("corvid", pal["blue"]), (".", fg), ("perch", pal["blue"]),
-         ("(branch, glyphs)", fg)],
-        [("  ", None), ("if ", pal["magenta"]), ("not ", pal["magenta"]), ("branch ", fg), ("then ", pal["magenta"])],
+        [("function ", pal["magenta"]), ("glyph", pal["blue"]), (".", fg), ("draw", pal["blue"]),
+         ("(grid, glyphs)", fg)],
+        [("  ", None), ("if ", pal["magenta"]), ("not ", pal["magenta"]), ("grid ", fg), ("then ", pal["magenta"])],
         [("    ", None), ("return ", pal["magenta"]), ("nil", pal["yellow"]), (", ", fg),
-         ('"nowhere to land"', pal["green"])],
+         ('"nothing to draw"', pal["green"])],
         [("  ", None), ("end", pal["magenta"])],
         [("  ", None), ("for ", pal["magenta"]), ("i ", fg), ("= ", acc), ("1", pal["yellow"]),
          (", ", fg), ("#glyphs ", fg), ("do", pal["magenta"])],
-        [("    ", None), ("branch", fg), (":", fg), ("draw", pal["cyan"]), ("(glyphs[i], ", fg),
+        [("    ", None), ("grid", fg), (":", fg), ("put", pal["cyan"]), ("(glyphs[i], ", fg),
          ("0.42", pal["yellow"]), (")", fg)],
         [("  ", None), ("end", pal["magenta"])],
-        [("  ", None), ("return ", pal["magenta"]), ("branch", fg)],
+        [("  ", None), ("return ", pal["magenta"]), ("grid", fg)],
         [("end", pal["magenta"])],
         [],
-        [("corvid", fg), (".", fg), ("perch", pal["blue"]), ("(", fg), ("wire", fg), (", ", fg),
+        [("glyph", fg), (".", fg), ("draw", pal["blue"]), ("(", fg), ("cog", fg), (", ", fg),
          ('"@#%&01"', pal["green"]), (")", fg), ("  ", None), ("-- TODO: ember mode", pal["red"])],
     ]
     for i, segs in enumerate(code):
@@ -651,7 +703,7 @@ def make_preview(wall: Image.Image):
     d.rectangle([rx0 + 2, sy - 18, W - gap - 2, sy + 18], fill=(20, 20, 26, 255))
     d.rectangle([rx0 + 2, sy - 18, rx0 + 120, sy + 18], fill=acc + (255,))
     d.text((rx0 + 61, sy), "NORMAL", font=fs, fill=(0, 0, 0), anchor="mm")
-    d.text((rx0 + 140, sy), "corvid.lua", font=fs, fill=fg, anchor="lm")
+    d.text((rx0 + 140, sy), "glyph.lua", font=fs, fill=fg, anchor="lm")
     return img
 
 
@@ -665,14 +717,16 @@ def main():
     ap.add_argument("--fast", action="store_true", help="cheaper blurs, for iterating")
     ap.add_argument("--out", default=str(ROOT), help="theme root to write into")
     ap.add_argument("--format", default="webp", choices=["webp", "png"])
+    ap.add_argument("--backgrounds-only", action="store_true",
+                    help="write only backgrounds/, skipping the unlock image and previews")
     args = ap.parse_args()
 
     w, h = (int(v) for v in args.size.lower().split("x"))
     out = Path(args.out)
     (out / "backgrounds").mkdir(parents=True, exist_ok=True)
-    todo = args.only or list(WALLPAPERS) + ["extras"]
+    todo = args.only or list(WALLPAPERS) + ([] if args.backgrounds_only else ["extras"])
 
-    perch = None
+    previewed = None  # the wallpaper the preview desktop sits on
     for key in todo:
         if key == "extras":
             continue
@@ -684,17 +738,17 @@ def main():
             img.save(path, quality=94, method=6)
         else:
             img.save(path, optimize=True)
-        if key == "perch":
-            perch = img
+        if key == "horizon":
+            previewed = img
 
     if "extras" in todo:
         print("🎨 unlock + previews", flush=True)
         unlock = make_unlock(fast=args.fast)
         unlock.save(out / "unlock.png", optimize=True)
         make_preview_unlock(unlock).save(out / "preview-unlock.png", optimize=True)
-        if perch is None:
-            perch = wp_perch(2560, 1440, fast=args.fast)
-        make_preview(perch).save(out / "preview.png", optimize=True)
+        if previewed is None:
+            previewed = wp_horizon(2560, 1440, fast=args.fast)
+        make_preview(previewed).save(out / "preview.png", optimize=True)
     print("✅ done")
 
 
