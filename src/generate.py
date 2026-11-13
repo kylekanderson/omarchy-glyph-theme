@@ -40,6 +40,9 @@ ORANGE = (255, 122, 58)
 EMBER = (255, 86, 38)
 DEEP_EMBER = (170, 44, 20)
 HALO = (0.80, 0.78, 1.00)  # tint of the wide glow
+# Overall glow strength. 1.0 was the original soft look; lower is crisper.
+# Override per run with --glow.
+GLOW = 0.4
 FRINGE_SHIFT = 4.6  # chromatic aberration, in units (px at 5K)
 
 # Glyph tiers, from the silhouette edge inwards.
@@ -257,18 +260,19 @@ class Scene:
 
         lum = wide.mean(axis=2, keepdims=True)
         halo_rgb = np.array(halo, dtype=np.float32)
+        k = GLOW
         out = (
-            fog * 0.16 * haze * halo_rgb
-            + (0.55 * wide + 0.9 * lum * halo_rgb) * 1.25 * glow
-            + mid * 0.55 * bloom
-            + tight * 0.6 * bloom
+            fog * 0.16 * haze * halo_rgb * k
+            + (0.55 * wide + 0.9 * lum * halo_rgb) * 1.25 * glow * k
+            + mid * 0.55 * bloom * k
+            + tight * 0.6 * bloom * k ** 1.5  # the tight halo is what softens edges
             + g
         )
 
         # Frame: offset red and blue channels for a chromatic fringe.
         shift = max(1, int(round(u * FRINGE_SHIFT)))
         fglow = np.asarray(self.frame.filter(ImageFilter.GaussianBlur(5 * u)), dtype=np.float32) / 255
-        f = fr + fglow * 0.9
+        f = fr + fglow * 0.9 * GLOW
         fringe = np.zeros_like(f)
         fringe[..., 0] = np.roll(f[..., 0] * 1.1 + f[..., 2] * 0.25, shift, axis=1)
         fringe[..., 1] = f[..., 1] * 0.82
@@ -711,15 +715,19 @@ def make_preview(wall: Image.Image):
 
 
 def main():
+    global GLOW
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--size", default="5120x2880", help="wallpaper size, WxH")
     ap.add_argument("--only", choices=list(WALLPAPERS) + ["extras"], action="append")
     ap.add_argument("--fast", action="store_true", help="cheaper blurs, for iterating")
     ap.add_argument("--out", default=str(ROOT), help="theme root to write into")
     ap.add_argument("--format", default="webp", choices=["webp", "png"])
+    ap.add_argument("--glow", type=float, default=GLOW,
+                    help=f"glow strength, 0 for none (default {GLOW})")
     ap.add_argument("--backgrounds-only", action="store_true",
                     help="write only backgrounds/, skipping the unlock image and previews")
     args = ap.parse_args()
+    GLOW = args.glow
 
     w, h = (int(v) for v in args.size.lower().split("x"))
     out = Path(args.out)
@@ -735,7 +743,7 @@ def main():
         img = fn(w, h, fast=args.fast)
         path = out / "backgrounds" / f"{name}.{args.format}"
         if args.format == "webp":
-            img.save(path, quality=94, method=6)
+            img.save(path, quality=97, method=6)
         else:
             img.save(path, optimize=True)
         if key == "horizon":
