@@ -56,8 +56,7 @@ for variant in "${VARIANTS[@]}"; do
   # Render from main's committed source, not whatever is checked out.
   mkdir -p "$work/src-$branch"
   git archive "$main_rev" src | tar -x -C "$work/src-$branch"
-  uv run -q "$work/src-$branch/src/generate.py" --size "$size" --out "$out" \
-    --only perch --only glide --only wire --only murmuration --only ember --only nocturne --only void
+  uv run -q "$work/src-$branch/src/generate.py" --size "$size" --out "$out" --backgrounds-only
 
   # main's tree, with backgrounds/ replaced by this shape's renders
   export GIT_INDEX_FILE="$work/index-$branch"

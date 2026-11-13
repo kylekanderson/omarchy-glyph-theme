@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 #######################################################
-# Fit Corvid's wallpapers to your screen's shape
+# Fit Glyph's wallpapers to your screen's shape
 #######################################################
 #
 # Omarchy shows one wallpaper on every monitor, scaled to fill and cropped, so a
-# 16:9 image loses its top and bottom on a 21:9 screen. Corvid keeps a full set
+# 16:9 image loses its top and bottom on a 21:9 screen. Glyph keeps a full set
 # rendered for each common shape on its own branch; this switches the installed
 # theme to the branch that fits. `omarchy theme update` is a `git pull`, so you
 # keep getting updates for the shape you picked.
@@ -109,7 +109,7 @@ main() {
   else
     git_theme checkout --quiet --track -b "$branch" "origin/$branch"
   fi
-  echo "✅ Corvid wallpapers set to $shape"
+  echo "✅ Glyph wallpapers set to $shape"
 
   # Re-apply so the new backgrounds are picked up right away.
   if [[ "$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null)" == "$THEME_NAME" ]] &&
