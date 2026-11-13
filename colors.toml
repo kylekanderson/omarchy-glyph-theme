@@ -1,0 +1,39 @@
+# Corvid — glyph-lit ravens on a black sky.
+# White phosphor text, a lavender bloom, and the odd orange ember.
+mode = "dark"
+
+accent = "#f0763a"
+selection = "#26243a"
+muted = "#3a384c"
+
+background = "#08080a"
+dark_background = "#050506"
+darker_background = "#000000"
+lighter_background = "#141419"
+
+foreground = "#d8d6e4"
+dark_foreground = "#55536a"
+light_foreground = "#b4b2c6"
+bright_foreground = "#f4f2ff"
+
+red = "#ff6b5e"
+yellow = "#f4b860"
+orange = "#f0763a"
+green = "#8fd6b0"
+cyan = "#8ad4e6"
+blue = "#8b9cff"
+magenta = "#c49bff"
+brown = "#7a4a2e"
+
+bright_red = "#ff8c80"
+bright_yellow = "#ffd08a"
+bright_green = "#b2ebcb"
+bright_cyan = "#b0e6f2"
+bright_blue = "#b0bbff"
+bright_magenta = "#dcc2ff"
+
+# Window borders glow like the glyphs: white fading into the lavender halo.
+hyprland_active_border = "rgba(f4f2ffee) rgba(8b9cffee) 45deg"
+hyprland_inactive_border = "rgba(1c1c24aa)"
+active_border_color = "#f4f2ff"
+active_tab_background = "#8b9cff"
