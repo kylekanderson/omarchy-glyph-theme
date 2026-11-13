@@ -40,7 +40,7 @@ ORANGE = (255, 122, 58)
 EMBER = (255, 86, 38)
 DEEP_EMBER = (170, 44, 20)
 HALO = (0.80, 0.78, 1.00)  # tint of the wide glow
-FRINGE_SHIFT = 0.0009  # chromatic aberration, as a fraction of width
+FRINGE_SHIFT = 4.6  # chromatic aberration, in units (px at 5K)
 
 # Glyph tiers, from the silhouette edge inwards.
 EDGE = ".:+-/ϟ1%'"
@@ -90,7 +90,9 @@ class Scene:
 
     def __init__(self, w: int, h: int, seed: int):
         self.w, self.h = w, h
-        self.u = w / 5120  # unit: 1px at 5K
+        # One unit is 1px on a 5120x2880 canvas. Using the tighter axis keeps
+        # glyphs and frames the same physical size on 21:9, 32:9 or 3:2 canvases.
+        self.u = min(w / 5120, h / 2880)
         self.rng = np.random.default_rng(seed)
         self.glyph = Image.new("RGB", (w, h))
         self.frame = Image.new("RGB", (w, h))
@@ -259,7 +261,7 @@ class Scene:
         )
 
         # Frame: offset red and blue channels for a chromatic fringe.
-        shift = max(1, int(round(self.w * FRINGE_SHIFT)))
+        shift = max(1, int(round(u * FRINGE_SHIFT)))
         fglow = np.asarray(self.frame.filter(ImageFilter.GaussianBlur(5 * u)), dtype=np.float32) / 255
         f = fr + fglow * 0.9
         fringe = np.zeros_like(f)
@@ -300,7 +302,7 @@ def wp_glide(w, h, fast=False):
     s = Scene(w, h, seed=11)
     u = s.u
     s.stars(900, 24 * u, bright=(0.05, 0.32))
-    box = h * 1.28  # the shape spans ~67% of its box vertically
+    box = min(h * 1.28, w * 0.86)  # the shape spans ~67% of its box vertically
     s.shape(shapes.GLIDE, w * 0.5, h * 0.47, box, box, 34 * u, drop=0.14, bright=0.92)
     return s.render(glow=0.6, bloom=0.8, fast=fast)
 

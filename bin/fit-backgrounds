@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+
+#######################################################
+# Fit Corvid's wallpapers to your screen's shape
+#######################################################
+#
+# Omarchy shows one wallpaper on every monitor, scaled to fill and cropped, so a
+# 16:9 image loses its top and bottom on a 21:9 screen. Corvid keeps a full set
+# rendered for each common shape on its own branch; this switches the installed
+# theme to the branch that fits. `omarchy theme update` is a `git pull`, so you
+# keep getting updates for the shape you picked.
+#
+#   fit-backgrounds            detect the largest monitor and pick its shape
+#   fit-backgrounds 21x9       pick a shape yourself
+#   fit-backgrounds --list     show the shapes and which one is active
+
+set -euo pipefail
+
+# shape  branch  width/height
+SHAPES=(
+  "16x9  main  1.7778"
+  "16x10 16x10 1.6000"
+  "3x2   3x2   1.5000"
+  "21x9  21x9  2.3704"
+  "32x9  32x9  3.5556"
+)
+
+THEME_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+THEME_NAME="$(basename "$THEME_DIR")"
+
+git_theme() { git -C "$THEME_DIR" "$@"; }
+
+branch_for() {
+  local shape name branch ratio
+  for shape in "${SHAPES[@]}"; do
+    read -r name branch ratio <<<"$shape"
+    [[ $name == "$1" ]] && { echo "$branch"; return 0; }
+  done
+  return 1
+}
+
+# Aspect ratio of the largest connected monitor, accounting for rotation.
+detect_ratio() {
+  if ! command -v hyprctl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    echo "❌ Can't detect your monitor (needs hyprctl and jq). Pass a shape, e.g. fit-backgrounds 21x9" >&2
+    return 1
+  fi
+  hyprctl monitors -j | jq -r '
+    map(if (.transform % 2) == 1 then {w: .height, h: .width} else {w: .width, h: .height} end)
+    | max_by(.w * .h)
+    | "\(.w) \(.h)"'
+}
+
+nearest_shape() {
+  local w=$1 h=$2
+  local shape name branch ratio
+  for shape in "${SHAPES[@]}"; do
+    read -r name branch ratio <<<"$shape"
+    # distance in log space, so 2:1 is as far from 1:1 as 4:1 is from 2:1
+    awk -v r="$ratio" -v w="$w" -v h="$h" -v n="$name" \
+      'BEGIN { d = log((w / h) / r); if (d < 0) d = -d; printf "%.6f %s\n", d, n }'
+  done | sort -n | head -1 | cut -d' ' -f2
+}
+
+list_shapes() {
+  local current shape name branch ratio
+  current="$(git_theme rev-parse --abbrev-ref HEAD)"
+  for shape in "${SHAPES[@]}"; do
+    read -r name branch ratio <<<"$shape"
+    printf '%s %-6s (branch %s)\n' "$([[ $branch == "$current" ]] && echo "*" || echo " ")" "$name" "$branch"
+  done
+}
+
+main() {
+  if [[ ! -d $THEME_DIR/.git ]]; then
+    echo "❌ $THEME_DIR isn't a git checkout. Install the theme with: omarchy theme install <url>" >&2
+    exit 1
+  fi
+
+  local shape="${1:-}"
+  case "$shape" in
+    -h | --help) sed -n '7,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -l | --list) list_shapes; exit 0 ;;
+    "")
+      local size
+      size="$(detect_ratio)" || exit 1
+      shape="$(nearest_shape $size)"
+      echo "🖥️  Largest monitor is ${size/ /x}, using the $shape wallpapers"
+      ;;
+  esac
+
+  local branch
+  if ! branch="$(branch_for "$shape")"; then
+    echo "❌ Unknown shape '$shape'. Choose one of:" >&2
+    list_shapes >&2
+    exit 1
+  fi
+
+  if [[ -n "$(git_theme status --porcelain --untracked-files=no)" ]]; then
+    echo "❌ $THEME_DIR has local changes; commit or discard them first." >&2
+    exit 1
+  fi
+
+  echo "📦 Fetching $branch"
+  git_theme fetch --quiet origin "$branch"
+  if git_theme show-ref --verify --quiet "refs/heads/$branch"; then
+    git_theme checkout --quiet "$branch"
+    git_theme merge --quiet --ff-only "origin/$branch"
+  else
+    git_theme checkout --quiet --track -b "$branch" "origin/$branch"
+  fi
+  echo "✅ Corvid wallpapers set to $shape"
+
+  # Re-apply so the new backgrounds are picked up right away.
+  if [[ "$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null)" == "$THEME_NAME" ]] &&
+    command -v omarchy-theme-set >/dev/null 2>&1; then
+    omarchy-theme-set "$THEME_NAME"
+  else
+    echo "   Select the $THEME_NAME theme to use them."
+  fi
+}
+
+main "$@"

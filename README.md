@@ -19,9 +19,38 @@ Or from a terminal:
 omarchy-theme-install https://github.com/kylekanderson/omarchy-corvid-theme
 ```
 
+### Ultrawide, super-ultrawide or 3:2 screen?
+
+Omarchy fills every monitor with the same image and crops what doesn't fit, so the
+16:9 wallpapers lose their top and bottom on a 21:9 screen. Corvid has a complete set
+rendered natively for each common shape. After installing, run:
+
+```bash
+~/.config/omarchy/themes/corvid/bin/fit-backgrounds
+```
+
+It looks at your largest monitor, switches the theme to the matching set and
+re-applies it. To choose a shape yourself, run `fit-backgrounds 21x9`, or
+`fit-backgrounds --list` to see the options:
+
+| shape | rendered at | for |
+|---|---|---|
+| `16x9` | 5120×2880 | most monitors (the default) |
+| `16x10` | 3840×2400 | many laptops |
+| `3x2` | 3840×2560 | Framework 13, Surface |
+| `21x9` | 5120×2160 | 3440×1440, 3840×1600, 5K2K ultrawides |
+| `32x9` | 7680×2160 | super-ultrawides (5120×1440, 7680×2160) |
+
+Each shape lives on its own branch of this repo, so `omarchy theme update` keeps that
+shape up to date and the background rotation only ever shows one set. To go back,
+run `fit-backgrounds 16x9`.
+
+With monitors of different shapes, pick the one you look at most. Omarchy can only show
+one image across all screens.
+
 ## Wallpapers
 
-Seven 5120×2880 wallpapers, all rendered from monospace glyphs. Cycle them with
+Seven wallpapers, all rendered from monospace glyphs. Cycle them with
 <kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>Space</kbd>.
 
 | | |
@@ -58,6 +87,13 @@ uv run src/generate.py                       # all wallpapers + unlock + preview
 uv run src/generate.py --only nocturne       # one wallpaper
 uv run src/generate.py --size 3840x2160      # another resolution
 uv run src/generate.py --fast --out /tmp/x   # quick drafts while tweaking
+```
+
+Layouts adapt to any aspect ratio. After changing the art on `main`, rebuild and push
+the per-shape branches with:
+
+```bash
+src/build-variants.sh --push
 ```
 
 Glyphs are picked by distance from a silhouette's edge (light `. : + - / ϟ` at the rim,
