@@ -6,6 +6,20 @@ Every shape is a list of polygons in a normalised 0..100 coordinate space
 """
 
 
+from pathlib import Path
+
+ART = Path(__file__).parent / "art"
+
+
+def load_grid(name, scale=1):
+    """A '#'/'.' text mask from src/art, optionally scaled up by whole cells."""
+    import numpy as np
+
+    rows = (ART / name).read_text().split()
+    grid = np.array([[c == "#" for c in row] for row in rows])
+    return np.kron(grid, np.ones((scale, scale), dtype=bool)) if scale > 1 else grid
+
+
 def mirror(shape):
     """Flip a shape horizontally (a raven facing the other way)."""
     return [[(100 - x, y) for x, y in reversed(poly)] for poly in shape]
